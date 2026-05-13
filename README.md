@@ -90,14 +90,19 @@ session_diagram(project_root="/your/project")
 
 ## Connect
 
+CogSession is an MCP stdio server. If `cogsession` is installed in the
+environment where your agent runs, register it with `uv run cogsession`.
+
 **Codex CLI:**
 ```bash
-codex mcp add cogsession -- uv --directory /path/to/cogsession run cogsession
+codex mcp add cogsession -- uv run cogsession
 ```
 
-Example, if this repo is at `/home/prem/Desktop/cogsession`:
+If you are running CogSession directly from a local source checkout, point `uv`
+at that checkout:
+
 ```bash
-codex mcp add cogsession -- uv --directory /home/prem/Desktop/cogsession run cogsession
+codex mcp add cogsession -- uv --directory /path/to/cogsession run cogsession
 ```
 
 Verify the server is registered:
@@ -114,9 +119,28 @@ Codex session starts.
 claude mcp add cogsession -- uv run cogsession
 ```
 
+For a local source checkout:
+
+```bash
+claude mcp add cogsession -- uv --directory /path/to/cogsession run cogsession
+```
+
 **Cursor** (`.cursor/mcp.json`):
 ```json
 {"mcpServers": {"cogsession": {"command": "uv", "args": ["run", "cogsession"]}}}
+```
+
+For a local source checkout:
+
+```json
+{
+  "mcpServers": {
+    "cogsession": {
+      "command": "uv",
+      "args": ["--directory", "/path/to/cogsession", "run", "cogsession"]
+    }
+  }
+}
 ```
 
 **Disable for a project:**
@@ -162,72 +186,70 @@ Use cogsession to initialize a session for this project with focus "initial setu
 During work, record important facts:
 
 ```text
-Use cogsession to record a decision: "Use Resend for password reset email" because "It is already configured for production email delivery".
+Use cogsession to record a decision: "Use the existing service layer for account updates" because "It keeps validation and audit logging in one place".
 ```
 
 ```text
-Use cogsession to record a dead end: "Next build failed" because "next-env.d.ts is owned by nobody:nogroup" and use instead "Fix file ownership before rerunning npm run build".
+Use cogsession to record a dead end: "Calling the external API directly from the route handler" because "It bypassed retries and request tracing" and use instead "Call the existing API client wrapper".
 ```
 
 Before stopping, checkpoint the session:
 
 ```text
-Use cogsession to checkpoint this session with context 64% and summary "Forgot-password email flow is implemented; build is blocked by next-env.d.ts permissions."
+Use cogsession to checkpoint this session with context 64% and summary "Implemented account update flow; remaining work is integration tests."
 ```
 
 ### Codex Example
 
 ```text
-prem@Inspiron-15-3511:~/Desktop/resturent-bot/QUICKSERVE$ codex
+developer@workstation:~/projects/example-app$ codex
 ╭───────────────────────────────────────────────╮
 │ >_ OpenAI Codex (v0.130.0)                    │
 │                                               │
 │ model:     gpt-5.5   /model to change         │
-│ directory: ~/Desktop/resturent-bot/QUICKSERVE │
+│ directory: ~/projects/example-app             │
 ╰───────────────────────────────────────────────╯
 
 › load the session and handoff from cogsession
 
 • Called
   └ cogsession.session_load({
-      "project_root": "/home/prem/Desktop/resturent-bot/QUICKSERVE",
+      "project_root": "/home/developer/projects/example-app",
       "load_level": "handoff"
     })
 
-[CogSession] Handoff from sess_20260513_231619_initialize_session_t_4cdf:
+[CogSession] Handoff from sess_20260513_101500_account_updates_a1b2:
 
-# Handoff: sess_20260513_231619_initialize_session_t_4cdf
+# Handoff: sess_20260513_101500_account_updates_a1b2
 
-**Focus:** Initialize session tracking for QUICKSERVE
+**Focus:** Account update flow
 **Closed:** 64% context | 2026-05-13 23:33
 **Parent:** root
 
 ## Summary
-Forgot-password fix branch is ready with Resend email support, normalized
-lookup input, docs, and passing lint/TypeScript.
+Account update flow is implemented, validation is wired through the existing
+service layer, and lint/type checks are passing. Remaining work is integration
+test coverage for error cases.
 ```
 
 After loading the handoff, Codex can continue with the saved context:
 
 ```text
-I fixed the forgot-password flow by adding real email delivery support through
-Resend:
+I implemented the account update flow using the existing service layer:
 
-- Added src/lib/email.ts for password reset emails.
-- Updated src/app/api/auth/forgot-password/route.ts to send the reset link.
-- Normalized restaurant slug and email in src/lib/validations.ts.
-- Documented required production vars in .env.example:
-  RESEND_API_KEY=
-  EMAIL_FROM="QuickServe <noreply@yourdomain.com>"
+- Added src/services/account_service.py for update orchestration.
+- Updated src/api/account_routes.py to call the service layer.
+- Added validation in src/schemas/account.py.
+- Documented required environment variables in .env.example.
 
 Verification:
-npm run lint       passed
-npx tsc --noEmit   passed
-git diff --check   passed
+pytest             passed
+ruff check .       passed
+mypy src           passed
 
-npm run build compiled successfully after network approval, but final build
-verification is blocked because next-env.d.ts is owned by nobody:nogroup and
-Next cannot write it.
+Remaining work:
+- Add integration tests for validation failures.
+- Confirm production environment variables before release.
 ```
 
 ### Project-Local vs Global
@@ -238,19 +260,19 @@ its own `.cogsessions/` directory.
 For this project:
 
 ```text
-/home/prem/Desktop/resturent-bot/QUICKSERVE/.cogsessions/
+/home/developer/projects/example-app/.cogsessions/
 ```
 
-For another copy of QuickServe:
+For another project:
 
 ```text
-/home/prem/Downloads/QUICKSERVE-QuickServe/.cogsessions/
+/home/developer/projects/admin-tool/.cogsessions/
 ```
 
 Those are separate histories. To inspect a specific project, ask Codex:
 
 ```text
-Use cogsession to show the session tree for /home/prem/Desktop/resturent-bot/QUICKSERVE.
+Use cogsession to show the session tree for /home/developer/projects/example-app.
 ```
 
 Codex may show an approval prompt before running a CogSession tool:
@@ -281,7 +303,7 @@ Use cogsession to show the session tree for this project.
 ```
 
 ```text
-Use cogsession to search this project for "forgot-password".
+Use cogsession to search this project for "account update".
 ```
 
 ```text
