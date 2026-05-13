@@ -1,0 +1,35 @@
+{
+  "_comment": "CogSession project configuration. Place at project root.",
+
+  "enabled": true,
+
+  "features": {
+    "dead_ends":        true,
+    "assumptions":      true,
+    "token_map":        true,
+    "error_graveyard":  true,
+    "environment":      true,
+    "file_cache":       true,
+    "danger_zones":     true,
+    "auto_diagram":     true,
+    "auto_handoff":     true,
+    "session_search":   true
+  },
+
+  "thresholds": {
+    "warn_at":       65,
+    "alert_at":      75,
+    "checkpoint_at": 80
+  },
+
+  "autosave_every_n_tools": 10,
+
+  "exclude": [
+    "*.log", ".env", ".env.*",
+    "node_modules/", "__pycache__/",
+    ".git/", "*.pyc", "dist/", "build/",
+    "*.lock"
+  ],
+
+  "session_dir": ".cogsessions"
+}

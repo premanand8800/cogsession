@@ -1,0 +1,41 @@
+# Environment
+.env
+.env.*
+!.env.example
+!.cogsession.json.example
+.cogsession.json
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+
+# CogMem specific
+cogmem.db
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# CogSession specific
+.cogsessions/
+
+# IDE
+.idea/
+/.vscode/
+*.swp
+.codex/
+.agents/
+
+# OS
+.DS_Store
+Thumbs.db

@@ -1,0 +1,57 @@
+{
+  "_comment": "CogSession Claude Code integration. Merge this into ~/.claude/settings.json",
+
+  "statusLine": {
+    "type": "command",
+    "command": "bash ~/.claude/cogsession/statusline.sh",
+    "padding": 0
+  },
+
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Read|Write|Edit|MultiEdit|Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ~/.claude/cogsession/pre_tool_use.sh"
+          }
+        ]
+      }
+    ],
+
+    "PostToolUse": [
+      {
+        "matcher": "Bash|Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ~/.claude/cogsession/post_tool_use.sh"
+          }
+        ]
+      }
+    ],
+
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ~/.claude/cogsession/pre_compact.sh"
+          }
+        ]
+      }
+    ],
+
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ~/.claude/cogsession/session_end.sh"
+          }
+        ]
+      }
+    ]
+  }
+}

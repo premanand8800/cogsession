@@ -1,0 +1,18 @@
+[project]
+name = "cogsession"
+version = "0.1.0"
+description = "Session memory system for AI coding agents — tree-structured, handoff-driven, context-aware"
+requires-python = ">=3.11"
+
+dependencies = [
+    "mcp>=1.0.0",
+    "python-dotenv>=1.0.0",
+    "pydantic>=2.0.0",
+]
+
+[project.scripts]
+cogsession = "cogsession.mcp.server:run"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
