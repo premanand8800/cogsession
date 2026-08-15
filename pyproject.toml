@@ -8,10 +8,14 @@ dependencies = [
     "mcp>=1.0.0",
     "python-dotenv>=1.0.0",
     "pydantic>=2.0.0",
+    "pytest>=7.0.0",
 ]
+
 
 [project.scripts]
 cogsession = "cogsession.mcp.server:run"
+cogsession-hook = "cogsession.hook_entry:main"
+
 
 [build-system]
 requires = ["hatchling"]

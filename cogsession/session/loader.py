@@ -227,7 +227,8 @@ class SessionLoader:
             )
             date    = s.get("created_at", "")[:10]
             pct     = s.get("token_pct_at_close", 0)
-            pct_str = f"({pct:.0f}%ctx)" if pct else ""
+            pct_str = f"({pct:.0f}%ctx)" if pct else "(unknown ctx)"
+
             liner   = s.get("one_liner", "")[:50]
 
             lines.append(
@@ -257,7 +258,11 @@ class SessionLoader:
         results = []
         query_lower = query.lower()
 
+        if not self.sessions_dir.exists():
+            return []
+
         for session_dir in self.sessions_dir.iterdir():
+
             if not session_dir.is_dir():
                 continue
             sid = session_dir.name

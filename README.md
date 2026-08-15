@@ -73,18 +73,32 @@ session_diagram(project_root="/your/project")
 
 ---
 
+## How It Works: Inverted Control (Observer-First)
+
+CogSession operates automatically via agent hooks and transcript inspection. **You don't need to manually report token percentages or call tools.**
+
+1. **Automatic Context Measurement**: Context load is read directly from Claude Code session transcripts (`input_tokens + cache_creation + cache_read + output_tokens`).
+2. **Automatic Injection**:
+   - `SessionStart`: Injects L0 manifest & L1 handoff unprompted.
+   - `UserPromptSubmit`: Nudges at 65%–74%, recommends at 75%–79%, and mandates checkpoints at $\ge$80%. Surfaces prompt-relevant dead ends and danger zones.
+   - `PreToolUse`: Blocks file edits targeting recorded danger zones.
+3. **Deterministic Distillation**: Tracks file edits, git operations, commands, and test failures without relying on LLM guesses.
+
+---
+
 ## What Makes It Different
 
 | Feature | Other Systems | CogSession |
 |---|---|---|
-| Dead ends tracking | ❌ | ✅ What failed and why |
-| Assumption risk levels | ❌ | ✅ HIGH/MEDIUM/LOW + how to verify |
-| Decision quality flags | ❌ | ✅ Flagged if made at >75% context |
+| Dead ends tracking | ❌ | ✅ Automatic extraction of failed approaches & reasons |
+| Context load measurement | ❌ Guesswork | ✅ Ground truth token measurement from transcript |
+| Decision quality flags | ❌ | ✅ Automatically flagged if made at >75% context |
 | Tree structure | ❌ linear | ✅ Branches like git |
-| Token-aware warnings | ❌ | ✅ Warn at 65%, alert 75%, checkpoint 80% |
-| Auto CLAUDE.md handoff | ❌ | ✅ Handoff written at checkpoint |
+| Token-aware warnings | ❌ | ✅ Automatic: 65% nudge, 75% alert, 80% mandate |
+| Auto CLAUDE.md handoff | ❌ | ✅ Handoff written automatically at checkpoint |
 | Architecture diagram | ❌ | ✅ Auto-generated Mermaid |
 | Environment snapshot | ❌ | ✅ Exact start commands, ports, env vars |
+
 
 ---
 
