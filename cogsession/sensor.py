@@ -47,14 +47,23 @@ def compute_transcript_tokens(transcript_path: Path) -> Optional[int]:
                             usage = msg["usage"]
 
                 if usage and isinstance(usage, dict):
-                    input_tokens = usage.get("input_tokens", 0) or 0
+                    input_tokens = usage.get("input_tokens", 0) or usage.get("prompt_tokens", 0) or 0
                     cache_creation = usage.get("cache_creation_input_tokens", 0) or 0
                     cache_read = usage.get("cache_read_input_tokens", 0) or 0
-                    output_tokens = usage.get("output_tokens", 0) or 0
+                    output_tokens = usage.get("output_tokens", 0) or usage.get("completion_tokens", 0) or 0
 
                     total = input_tokens + cache_creation + cache_read + output_tokens
                     if total > 0:
                         last_tokens = total
+                elif isinstance(entry, dict) and "usage_metadata" in entry:
+                    um = entry["usage_metadata"]
+                    if isinstance(um, dict):
+                        inp = um.get("prompt_token_count", 0) or 0
+                        out = um.get("candidates_token_count", 0) or 0
+                        tot = um.get("total_token_count", 0) or (inp + out)
+                        if tot > 0:
+                            last_tokens = tot
+
     except Exception:
         return None
 
