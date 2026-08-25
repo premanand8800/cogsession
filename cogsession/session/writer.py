@@ -20,6 +20,7 @@ Session folder structure:
 
 import json
 import subprocess
+import sys
 from pathlib import Path
 from datetime import datetime
 
@@ -47,7 +48,7 @@ class SessionWriter:
         self.write_handoff(context_pct)
         self.write_mermaid_diagram()
         self.update_index()
-        print(f"[CogSession] ✓ Checkpoint written → {self.dir.name}")
+        print(f"[CogSession] Checkpoint written -> {self.dir.name}", file=sys.stderr, flush=True)
 
     # ── manifest.json — always loaded ─────────────────────────────────
 

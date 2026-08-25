@@ -20,6 +20,7 @@ Sessions connect in a tree:
 """
 
 import json
+import sys
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -199,7 +200,7 @@ class Session:
             with open(self.log_path(), "a") as f:
                 f.write(entry.to_jsonl() + "\n")
         except Exception as e:
-            print(f"[CogSession] Log write error: {e}")
+            print(f"[CogSession] Log write error: {e}", file=sys.stderr, flush=True)
 
     # ── Serialization ──────────────────────────────────────────────────
 
