@@ -24,6 +24,7 @@ Connect to Claude Code:
 import asyncio
 import json
 import os
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -733,20 +734,18 @@ def _txt(msg: str) -> list[types.TextContent]:
     return [types.TextContent(type="text", text=msg)]
 
 
+def _log(msg: str) -> None:
+    """Diagnostics to stderr — stdout carries the JSON-RPC stream."""
+    print(f"[CogSession] {msg}", file=sys.stderr, flush=True)
+
+
 # ══════════════════════════════════════════════════════════════════════
 # ENTRY POINT
 # ══════════════════════════════════════════════════════════════════════
 
 async def main():
-    print("\n" + "═" * 48)
-    print("   CogSession MCP Server")
-    print("═" * 48)
-    print("  Tools: session_init | session_checkpoint")
-    print("         session_load | session_update")
-    print("         session_tree | session_search")
-    print("         session_status | session_diagram")
-    print("═" * 48)
-    print("  Waiting for Claude Code connection...\n")
+    # stdout is the JSON-RPC channel for a stdio server — diagnostics go to stderr.
+    _log("MCP server ready - waiting for client connection")
 
     async with stdio_server() as (read, write):
         await app.run(read, write, app.create_initialization_options())

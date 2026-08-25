@@ -8,6 +8,7 @@ Global config lives in ~/.cogsession/config.json
 
 import os
 import json
+import sys
 from pathlib import Path
 
 
@@ -74,7 +75,7 @@ def load_project_config(project_root: Path) -> dict:
                 if k not in ("features", "thresholds"):
                     config[k] = v
         except Exception as e:
-            print(f"[CogSession] Config parse error: {e}, using defaults")
+            print(f"[CogSession] Config parse error: {e}, using defaults", file=sys.stderr, flush=True)
 
     return config
 
