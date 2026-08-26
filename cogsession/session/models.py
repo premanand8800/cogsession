@@ -146,6 +146,11 @@ class Session:
     parent_id:   Optional[str] = None
     children:    list = field(default_factory=list)
 
+    # The host tool's own session id. Recorded because hooks are handed *this*
+    # and not our slug, so without it every lookup from a hook misses and the
+    # store looks empty while being perfectly healthy.
+    harness_session_id: Optional[str] = None
+
     # Status
     status:      str = "active"   # active | completed | abandoned
     created_at:  str = field(default_factory=now_iso)
@@ -208,6 +213,9 @@ class Session:
         """manifest.json — always loaded (tiny, ~40 tokens)."""
         return {
             "id":                  self.id,
+            # Carried in the manifest so `SessionLoader.by_harness_id` can map a
+            # hook's session id back to ours without opening every session.
+            "harness_session_id":  self.harness_session_id,
             "parent_id":           self.parent_id,
             "children":            self.children,
             "focus":               self.focus,

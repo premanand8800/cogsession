@@ -42,10 +42,21 @@ bash scripts/install.sh
 
 ## Usage
 
-**Start of every session:**
+**Start of every session: nothing.** The `SessionStart` hook opens a session and
+loads the previous handoff on its own. Tracking that depends on someone
+remembering to turn it on is tracking that silently does not happen.
+
+Name the session when you know what it is about — the focus line is the only
+part a tool cannot infer:
+```
+session_update(type="focus", content="auth module")
+```
+
+`session_init` still exists for a session you want to start deliberately, or to
+attach to a parent:
 ```
 session_init(project_root="/your/project", focus="auth module")
-session_load(project_root="/your/project")   # load previous handoff
+session_load(project_root="/your/project")   # load a previous handoff by hand
 ```
 
 **Throughout the session:**
@@ -63,6 +74,28 @@ session_status(context_pct=67)
 ```
 session_checkpoint(context_pct=78, one_liner="Built JWT auth. Refresh token next.")
 ```
+
+**Claims — for anything you write down that could go stale:**
+```
+claim_record(
+  claim="the composite key includes the tenant column",
+  verified_by="grep -c 'UNIQUE (a, b, c)' migrations/007_schema.sql",
+  expect="1",
+  watches=["migrations/007_schema.sql"],
+  asserted_in="PR description, line 26",
+)
+claim_check()          # re-runs the proofs whose files moved
+```
+
+A claim stores the *command that proved it*, not a note about how to check it.
+When the file changes, the next session is told which statements stopped being
+true, where they were asserted, and how they were checked. Silence means
+everything still holds.
+
+This exists because the most expensive failure is not a wrong decision. It is a
+right one that quietly stopped being true — a description of a schema the code
+no longer has, a comment naming a constraint that moved, a test asserting a
+shape the implementation dropped.
 
 **Explore history:**
 ```

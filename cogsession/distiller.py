@@ -9,7 +9,7 @@ Inferential tier: best-effort LLM extraction for handoff prose/decisions.
 from pathlib import Path
 from typing import Dict, Any, List
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 
 from cogsession.session.models import Session, LogEntry, DeadEnd
 
@@ -22,7 +22,7 @@ class Distiller:
         session: Session, tool_name: str, tool_input: Dict[str, Any], tool_response: Dict[str, Any]
     ) -> None:
         """Deterministic tier — runs on every tool call."""
-        ts = datetime.utcnow().isoformat() + "Z"
+        ts = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
         if tool_name == "Read":
             fp = tool_input.get("file_path", "")
