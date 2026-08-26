@@ -75,6 +75,39 @@ session_status(context_pct=67)
 session_checkpoint(context_pct=78, one_liner="Built JWT auth. Refresh token next.")
 ```
 
+**Look something up without loading anything.** Every session keeps a
+`session.md`: append-only, one block per event, each header carrying its own
+local timestamp, event type, and the repo state it happened at
+(`branch@commit+dirty`). So one `grep` answers a question:
+
+```
+grep -n -A4 "dead_end"  .cogsessions/<session>/session.md   # what already failed
+grep -n "2026-08-27 01:" .cogsessions/<session>/session.md   # what happened that hour
+grep -n "main@a1b2c3d"   .cogsessions/<session>/session.md   # what happened at that commit
+```
+
+Every entry line is self-describing, which is what makes a bare `grep` useful:
+a match tells you when, what kind, and against which state of the code, with no
+need to scroll for context. Tool calls are deliberately left out — hundreds per
+session would bury the decisions someone is actually searching for; they stay in
+`session_log.jsonl`.
+
+**Scan history like `git log`:**
+```
+session_log()                        # newest first, all sessions
+session_log(type_filter="dead_end")  # what has already failed here
+```
+
+```
+when                       what         repo                   session
+2026-08-27 01:43:57 +0545  error        master@3d4d1fd+2       sess_20260827_...
+2026-08-27 01:43:57 +0545  dead_end     master@3d4d1fd+1       sess_20260827_...
+```
+
+Scan, then grep the journal for the entry that matters. The commit id is the
+join back to real `git log`, so a decision can be lined up with the state of
+the code that produced it.
+
 **Claims — for anything you write down that could go stale:**
 ```
 claim_record(

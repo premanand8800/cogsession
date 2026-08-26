@@ -7,7 +7,7 @@ the file and line. Nothing here is speculative feature wishing.
 v1 was ~2,560 lines across 13 modules, and the module split is good: `sensor` reads, `distiller`
 condenses, `injector` decides what to say, `writer`/`loader` own the store, `hook_entry` and
 `mcp/server` are the two entry points. **v2 is not a rewrite.** The architecture is sound. What
-follows is six bugs, all fixed, and one new capability, also built.
+follows is seven bugs, all fixed, and two new capabilities.
 
 The theme across all four: **every bug was silent.** The tool kept running, printed something
 plausible, and did the wrong thing. That is the failure mode a session tool can least afford,
@@ -326,6 +326,46 @@ which is what the earlier stdout fix was about, so all four call sites are now t
   its own reliability, which almost no tool is. Keep it and extend it — that instinct is what
   §5 generalises.
 
+## 8. Two shapes of memory, and only one was built
+
+The store was structured entirely for a program: `session_log.jsonl`,
+`decisions.json`, `manifest.json`. Good for loading, useless for looking something up, because
+finding one fact meant parsing a file and holding all of it. So the only way to answer "has this
+already failed?" was to load the session and read it.
+
+### Built as
+
+`cogsession/journal.py` — `session.md`, append-only, one block per event. Three constraints, each
+load-bearing:
+
+- **Append-only.** Never rewritten, so a `grep -n` line number stays valid, and two processes
+  appending cannot corrupt each other's entries. This is also why a late `focus` is appended as
+  a timeline entry rather than edited into the header.
+- **Every entry line self-describing.** Local timestamp, type, and repo state on the header
+  line itself. That is precisely what makes a bare `grep` useful: a match is informative without
+  `-A/-B`, so the reader does not have to scroll for context.
+- **Repo state on every entry**, as `branch@commit+dirty`. A decision is not a free-floating
+  fact; it was made against a specific state of the code, and "why did we think that?" is
+  usually answered by what the tree looked like at the time. The commit id is also the join back
+  to real `git log`.
+
+Wired at one choke point: `Session.append_log` already carried every recording path in the
+server, so the journal cannot develop holes. That mattered more than it looks — a journal
+missing entries is worse than no journal, because a `grep` that finds nothing reads as proof
+that nothing happened.
+
+**One deliberate omission:** tool calls go to the JSONL and not the journal. Hundreds per
+session would bury the decisions and dead ends someone is searching for, and the value here is
+entirely in the signal-to-noise ratio.
+
+`session_log` is the scan step — a `git log --oneline` across sessions, filterable by type, one
+line each. Scan, then grep for the entry that matters.
+
+One bug found while building it: the dirty count included `.cogsessions/`, so the tool reported
+the developer's tree as dirty **because it had just written to its own store**, and the number
+climbed with every entry. Excluded in code as well as by gitignore, so the figure means the same
+thing in a project that has not got round to ignoring it.
+
 ## What is still open
 
 Small, and none of it blocks daily use:
@@ -344,13 +384,14 @@ Small, and none of it blocks daily use:
 
 ## Testing note
 
-Three files, 63 tests, up from 13:
+Four files, 83 tests, up from 13:
 
 | File | Covers |
 |---|---|
 | `test_v2_foundations.py` | id resolution, the gated mandate, tracked-file refusal, danger zones |
 | `test_session_lifecycle.py` | auto-init and the two handlers, driven through the real hook as a subprocess |
 | `test_claims.py` | claims: breakage detection, silence when holding, the trust boundary |
+| `test_journal.py` | `session.md`: grep behaviour, append-only, live git context, the log view |
 
 The assertions care as much about what is **not** said as about what is, because every bug here
 was silent. `test_session_lifecycle.py` goes through `hook_entry` as a subprocess rather than

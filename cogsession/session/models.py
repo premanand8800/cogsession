@@ -25,6 +25,8 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
+
+from cogsession.journal import JOURNAL_FILE, Journal
 from typing import Optional
 
 
@@ -199,13 +201,32 @@ class Session:
 
     # ── Log appender ───────────────────────────────────────────────────
 
+    def journal_path(self) -> Path:
+        return self.session_dir() / JOURNAL_FILE
+
     def append_log(self, entry: LogEntry):
-        """Append one event to session_log.jsonl (append-only, never overwrites)."""
+        """Append one event to the machine log and the human journal.
+
+        Both, from one call site, because every recording path in the server
+        already funnels through here. Anything that logs to one and not the
+        other drifts, and a journal missing entries is worse than no journal —
+        a grep that finds nothing reads as "it never happened".
+        """
         try:
             with open(self.log_path(), "a") as f:
                 f.write(entry.to_jsonl() + "\n")
         except Exception as e:
             print(f"[CogSession] Log write error: {e}", file=sys.stderr, flush=True)
+
+        # The journal is a convenience, never a reason to fail a recording.
+        try:
+            Journal(Path(self.project_root), self.id).append(
+                entry.type, entry.content,
+                context_pct=entry.context_pct,
+                detail=entry.metadata or None,
+            )
+        except Exception:
+            pass
 
     # ── Serialization ──────────────────────────────────────────────────
 
