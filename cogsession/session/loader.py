@@ -53,6 +53,34 @@ class SessionLoader:
                 return s["id"]
         return None
 
+    def by_harness_id(self, harness_session_id: str) -> Optional[str]:
+        """Map a host-tool session id (the one hooks receive) to our session id.
+
+        Sessions are keyed by our own slug on disk. The hook payload carries the
+        *host* id, which is a different namespace entirely, so anything that
+        treats the two as interchangeable silently misses every lookup.
+        """
+        for s in self.list_sessions():
+            if s.get("harness_session_id") == harness_session_id:
+                return s["id"]
+        return None
+
+    def resolve(self, ref: Optional[str]) -> Optional[str]:
+        """Resolve any reference to a session id we actually have on disk.
+
+        `ref` may be one of our slugs, a host session id, or None. Returning
+        None means "no session" — never a slug that does not exist, because a
+        caller cannot tell a bad slug from a missing one until it reads a file
+        and gets nothing.
+        """
+        if ref:
+            if (self.sessions_dir / ref).is_dir():
+                return ref
+            mapped = self.by_harness_id(ref)
+            if mapped:
+                return mapped
+        return self.get_active_session_id() or self.get_latest_session_id()
+
     # ── Progressive loading ────────────────────────────────────────────
 
     def load_manifest(self, session_id: str) -> Optional[dict]:
@@ -65,11 +93,16 @@ class SessionLoader:
         except Exception:
             return None
 
-    def load_handoff(self, session_id: str) -> str:
-        """L1 — handoff brief. First thing new session reads. ~250 tokens."""
+    def load_handoff(self, session_id: str) -> Optional[str]:
+        """L1 — handoff brief. First thing a new session reads. ~250 tokens.
+
+        Returns None when there is no handoff. It used to return the
+        not-found message itself, which made absence indistinguishable from
+        content and printed the message to the user as if it were the brief.
+        """
         path = self.sessions_dir / session_id / "handoff.md"
         if not path.exists():
-            return f"[CogSession] No handoff found for {session_id}"
+            return None
         return path.read_text()
 
     def load_tasks(self, session_id: str) -> dict:
