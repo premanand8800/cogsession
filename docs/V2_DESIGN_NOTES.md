@@ -4,10 +4,10 @@ Written 2026-08-27 after three weeks of daily use across three private repositor
 below is either a bug read out of the v1 source or a failure observed in a real session, with
 the file and line. Nothing here is speculative feature wishing.
 
-v1 is ~2,560 lines across 13 modules, and the module split is good: `sensor` reads, `distiller`
+v1 was ~2,560 lines across 13 modules, and the module split is good: `sensor` reads, `distiller`
 condenses, `injector` decides what to say, `writer`/`loader` own the store, `hook_entry` and
 `mcp/server` are the two entry points. **v2 is not a rewrite.** The architecture is sound. What
-follows is four bugs, all now fixed, and one new capability that is not built yet.
+follows is six bugs, all fixed, and one new capability, also built.
 
 The theme across all four: **every bug was silent.** The tool kept running, printed something
 plausible, and did the wrong thing. That is the failure mode a session tool can least afford,
@@ -188,7 +188,7 @@ guard that can be wrong should escalate rather than shoot.
 
 ---
 
-## 5. The thing to build next: claims, not just decisions
+## 5. Claims, not just decisions — built
 
 v1 records decisions, dead ends and assumptions. All of it is **what we believed at a moment**,
 and nothing ever re-checks whether it is still true.
@@ -223,12 +223,95 @@ Then:
 - The message a model needs is not "you decided X". It is **"what you wrote about X is now
   false."**
 
-No model judgement involved. It stores the command that proved something and re-runs it. Roughly
-one module beside `distiller`, and it targets the single most expensive recurring failure across
-three weeks of work.
+No model judgement involved. It stores the command that proved something and re-runs it.
 
-It also fits what CogSession already is: the component that remembers. The gap is that
-remembering a claim is not the same as still believing it.
+### Built as
+
+`cogsession/claims.py`, plus two MCP tools (`claim_record`, `claim_check`) and a re-check on
+`SessionStart`. `Claim` carries the statement, the command, the expected output, the paths it
+watches, where it was asserted, and the commit it held at. `expect=None` means "must exit 0",
+which suits `test -f` or a test invocation where the exit code is the whole signal.
+
+Four decisions worth naming:
+
+- **Silence when everything holds.** A report that appears every session becomes furniture, and
+  furniture is not read. Only breakages are reported.
+- **Verify on the way in.** A claim recorded already-broken is a typo in the command, and
+  discovering that weeks later defeats the point.
+- **A broken proof is not a false claim.** `error` and `broken` are distinct statuses;
+  conflating them would cry wolf.
+- **Fail towards checking.** No commit, no watch list, or git unable to answer all mean "check
+  anyway". A missed re-check is a stale claim believed; a spurious one costs a `grep`.
+
+On the trust boundary: verification runs shell commands from `claims.json`. That is the same
+boundary as `.git/hooks` — local, developer-owned, not shared — and two guards make it explicit
+rather than assumed. A claims file **tracked by git** is never executed, because a tracked file
+can arrive from someone else. And every command runs under a timeout with its output compared,
+never interpreted.
+
+It fits what CogSession already is: the component that remembers. The gap was that remembering a
+claim is not the same as still believing it.
+
+---
+
+## 6. Tracking that depended on someone remembering
+
+The bug behind "it is not tracking anything", once §1 was fixed.
+
+A session existed only if someone called `session_init` by hand. Nothing in the hook path
+created one. So the ordinary case was: hooks firing on every event, `get_active_session_id()`
+returning `None`, and every downstream handler returning early.
+
+```
+_handle_post_tool_use:  active_id = get_active_session_id(); if not active_id: return
+```
+
+Tool activity, compaction boundaries, session ends — none of it recorded, for anyone who had not
+run an MCP call by hand. And §2's escalation firing into that vacuum.
+
+### Fixed
+
+`SessionStart` now opens a session when none is active, writing a manifest and an index entry
+and nothing else. Deliberately cheap and quiet. The focus line stays empty until someone who
+knows what the session is about fills it in, because that is the one thing a tool cannot infer.
+
+It also binds `harness_session_id` to an already-open session the first time a hook sees it, so
+later lookups resolve directly instead of falling back.
+
+---
+
+## 7. Two handlers that reported saves they never made
+
+```python
+# hook_entry.py (v1)
+def _handle_pre_compact(...):
+    print(f"[CogSession] ⚡ Pre-compact checkpoint saved at {context_pct:.1f}% context")
+
+def _handle_session_end(...):
+    print("[CogSession] Session ended — final snapshot saved")
+```
+
+Both printed a save and wrote nothing whatsoever. For a tool whose entire product is a claim to
+remember accurately, reporting a save it never performed is the worst failure available: it is
+not a missing feature, it is a false statement to the user at the exact moment they are relying
+on it.
+
+The `session_end` case had a second effect. A session left `active` forever is not inert —
+`get_active_session_id()` returns the first active session it finds, so a stale one captures
+every later lookup and new work is logged into last week's folder.
+
+### Fixed
+
+- `PreCompact` appends a real `compaction` entry to the append-only log, and says only what it
+  did: a boundary recorded, not a checkpoint saved. A full checkpoint needs the in-memory
+  session that lives in the MCP server, so a marker is the honest thing here.
+- `SessionEnd` appends an entry and closes the session in the index with `closed_at`,
+  `token_pct_at_close` and a `session_end` trigger, freeing the active slot.
+- Both stay silent when there is no session. Nothing to report is not an error.
+
+Also cleaned up on the way through: `datetime.utcnow()` (deprecated in 3.12) was emitting a
+`DeprecationWarning` from inside a hook. Diagnostics from a hook are noise in the transcript,
+which is what the earlier stdout fix was about, so all four call sites are now timezone-aware.
 
 ---
 
@@ -243,10 +326,37 @@ remembering a claim is not the same as still believing it.
   its own reliability, which almost no tool is. Keep it and extend it — that instinct is what
   §5 generalises.
 
+## What is still open
+
+Small, and none of it blocks daily use:
+
+- **Escalate on what is at risk, not on a percentage.** A session with unsaved decisions at 70%
+  deserves a nudge; one with nothing recorded at 99% deserves silence. Currently gated only on a
+  session existing.
+- **Read the host's settings.** Where the host compacts context automatically, "save state
+  before truncation" is advice for a problem already solved elsewhere.
+- **Danger zones: warn on first hit, block on the second**, and let a zone carry an `expires`
+  date so one nobody renews stops blocking. A guard that can be wrong should escalate rather
+  than shoot.
+- **Rebuild a session from its log.** The append-only log holds everything that happened, so a
+  crashed session could be reconstructed rather than lost. Today a checkpoint needs the
+  in-memory session.
+
 ## Testing note
 
-`tests/test_v2_foundations.py` covers all four fixes, and the assertions care as much about what
-is **not** said as about what is, because every one of these bugs was silent.
+Three files, 63 tests, up from 13:
+
+| File | Covers |
+|---|---|
+| `test_v2_foundations.py` | id resolution, the gated mandate, tracked-file refusal, danger zones |
+| `test_session_lifecycle.py` | auto-init and the two handlers, driven through the real hook as a subprocess |
+| `test_claims.py` | claims: breakage detection, silence when holding, the trust boundary |
+
+The assertions care as much about what is **not** said as about what is, because every bug here
+was silent. `test_session_lifecycle.py` goes through `hook_entry` as a subprocess rather than
+calling functions, because these bugs lived in the wiring rather than in any one function — and
+it asserts a clean exit everywhere, since the hook contract is that it must never break the
+developer's session.
 
 Two pre-existing tests had to change, and both were asserting the bug rather than the intent:
 

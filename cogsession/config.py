@@ -38,6 +38,7 @@ DEFAULT_CONFIG = {
         "auto_diagram":     True,   # Generate Mermaid architecture diagram
         "auto_handoff":     True,   # Auto-write handoff to CLAUDE.local.md (never a tracked file)
         "session_search":   True,   # SQLite FTS across all sessions
+        "claim_checks":     True,   # Re-run the proof behind a recorded claim
     },
 
     # Context % thresholds

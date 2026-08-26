@@ -38,6 +38,7 @@ from cogsession.session.models import (
     TaskList, EnvironmentSnapshot, new_id, now_iso
 )
 from cogsession.session.writer import SessionWriter
+from cogsession.claims import Claim, ClaimStore, format_report, run_check
 from cogsession.session.loader import SessionLoader
 from cogsession.config import HANDOFF_TARGET_NAME, feature_enabled, is_enabled, load_project_config
 
@@ -293,6 +294,61 @@ async def list_tools() -> list[types.Tool]:
         ),
 
         types.Tool(
+            name="claim_record",
+            description=(
+                "Record a claim together with the command that PROVES it, so a "
+                "later session is told when it stops being true. Use this for any "
+                "factual statement you write somewhere durable — a PR description, "
+                "a code comment, a doc, a status report. The proof must be a cheap "
+                "read-only shell command whose output can be compared."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "claim": {
+                        "type": "string",
+                        "description": "The assertion, as you would write it to a human"
+                    },
+                    "verified_by": {
+                        "type": "string",
+                        "description": "Shell command that proves it, e.g. \"grep -c 'X' path\""
+                    },
+                    "expect": {
+                        "type": "string",
+                        "description": "Expected stdout, stripped. Omit to mean 'must exit 0'"
+                    },
+                    "watches": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Paths whose change should trigger a re-check"
+                    },
+                    "asserted_in": {
+                        "type": "string",
+                        "description": "Where the claim was made, e.g. 'PR #48 body, line 26'"
+                    }
+                },
+                "required": ["claim", "verified_by"]
+            }
+        ),
+
+        types.Tool(
+            name="claim_check",
+            description=(
+                "Re-run recorded claims and report only the ones that no longer "
+                "hold. Silence means everything still checks out."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "all": {
+                        "type": "boolean",
+                        "description": "Check every claim, not only those whose files changed"
+                    }
+                }
+            }
+        ),
+
+        types.Tool(
             name="session_diagram",
             description=(
                 "Show or regenerate the architecture diagram (Mermaid format). "
@@ -337,6 +393,8 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
         elif name == "session_search":   return await _search(arguments)
         elif name == "session_status":   return await _status(arguments)
         elif name == "session_diagram":  return await _diagram(arguments)
+        elif name == "claim_record":     return await _claim_record(arguments)
+        elif name == "claim_check":      return await _claim_check(arguments)
         else:
             return _txt(f"[CogSession] Unknown tool: {name}")
     except Exception as e:
@@ -782,6 +840,87 @@ def _log(msg: str) -> None:
 # ══════════════════════════════════════════════════════════════════════
 # ENTRY POINT
 # ══════════════════════════════════════════════════════════════════════
+
+
+# ══════════════════════════════════════════════════════════════════════
+#  Claims — assertions that carry their own proof
+# ══════════════════════════════════════════════════════════════════════
+
+
+def _claim_store() -> Optional[ClaimStore]:
+    """The store for whichever session is live, or None if there is none."""
+    if _active_session and _project_root:
+        return ClaimStore(_project_root, _active_session.id)
+    if _project_root:
+        sid = SessionLoader(_project_root).resolve(None)
+        if sid:
+            return ClaimStore(_project_root, sid)
+    return None
+
+
+async def _claim_record(args: dict) -> list[types.TextContent]:
+    store = _claim_store()
+    if store is None:
+        return _txt("[CogSession] No session to attach a claim to.")
+
+    claim_text  = (args.get("claim") or "").strip()
+    verified_by = (args.get("verified_by") or "").strip()
+    if not claim_text or not verified_by:
+        return _txt("[CogSession] A claim needs both the statement and the command that proves it.")
+
+    claim = Claim(
+        claim=claim_text,
+        verified_by=verified_by,
+        expect=args.get("expect"),
+        watches=list(args.get("watches") or []),
+        asserted_in=(args.get("asserted_in") or "").strip(),
+        at_commit=_head_commit(_project_root),
+    )
+
+    # Verify on the way in. A claim recorded already-broken is a typo in the
+    # command, and finding that out weeks later defeats the point.
+    result = run_check(_project_root, claim)
+    claim.last_status  = result.status
+    claim.last_checked = now_iso()
+    claim.last_output  = result.detail[:500]
+    store.add(claim)
+
+    if result.status == "holds":
+        return _txt(f"[CogSession] Claim recorded and verified ({result.detail}).")
+    return _txt(
+        f"[CogSession] Claim recorded, but its proof does NOT pass right now: "
+        f"{result.detail}\n"
+        "Check the command before relying on it — a proof that never passed "
+        "cannot tell you when the claim breaks."
+    )
+
+
+async def _claim_check(args: dict) -> list[types.TextContent]:
+    store = _claim_store()
+    if store is None:
+        return _txt("[CogSession] No session, so no claims to check.")
+
+    results = store.verify(only_if_changed=not bool(args.get("all")))
+    if not results:
+        return _txt("[CogSession] No claims needed checking.")
+
+    report = format_report(results)
+    if report:
+        return _txt(report)
+    return _txt(f"[CogSession] All {len(results)} claim(s) still hold.")
+
+
+def _head_commit(project_root: Optional[Path]) -> str:
+    if not project_root:
+        return ""
+    try:
+        proc = subprocess.run(
+            ["git", "-C", str(project_root), "rev-parse", "HEAD"],
+            capture_output=True, text=True, timeout=5,
+        )
+        return proc.stdout.strip() if proc.returncode == 0 else ""
+    except (OSError, subprocess.SubprocessError):
+        return ""
 
 async def main():
     # stdout is the JSON-RPC channel for a stdio server — diagnostics go to stderr.
