@@ -39,7 +39,29 @@ from cogsession.session.models import (
 )
 from cogsession.session.writer import SessionWriter
 from cogsession.session.loader import SessionLoader
-from cogsession.config import load_project_config, is_enabled
+from cogsession.config import HANDOFF_TARGET_NAME, feature_enabled, is_enabled, load_project_config
+
+import subprocess
+
+
+def _is_git_tracked(project_root: Path, path: Path) -> bool:
+    """Is `path` tracked by git? Used to refuse writes to shared source files.
+
+    Fails closed on the safe side: if git cannot answer (not a repo, git
+    missing, timeout) we report False, because refusing otherwise would break
+    every non-git project. The caller only ever targets an untracked,
+    gitignored filename, so False is safe here; True is what stops us
+    dirtying a tracked file.
+    """
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(project_root), "ls-files", "--error-unmatch", str(path)],
+            capture_output=True, timeout=5,
+        )
+        return result.returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
 
 # ── Active session state (in-memory) ──────────────────────────────────
 # One session per MCP server instance (one project at a time)
@@ -414,31 +436,49 @@ async def _checkpoint(args: dict) -> list[types.TextContent]:
     writer = SessionWriter(_active_session)
     writer.write_all(context_pct=ctx_pct)
 
-    # Auto-update CLAUDE.md with handoff
+    # Deliver the handoff so the next session picks it up automatically.
+    #
+    # Target CLAUDE.local.md, never CLAUDE.md. Both are auto-loaded, but
+    # CLAUDE.md is committed and shared, so writing session scratch state into
+    # it dirties the working tree of the repository we are only supposed to be
+    # observing, and ships one developer's notes to everyone else.
     if _project_root:
         handoff_path = _active_session.session_dir() / "handoff.md"
-        claude_md    = _project_root / "CLAUDE.md"
-        if handoff_path.exists():
-            handoff_content = handoff_path.read_text()
-            # Prepend to CLAUDE.md (keep existing content below)
-            existing = claude_md.read_text() if claude_md.exists() else ""
-            # Remove old cogsession block if present
-            if "<!-- COGSESSION:HANDOFF -->" in existing:
-                start = existing.find("<!-- COGSESSION:HANDOFF -->")
-                end   = existing.find("<!-- /COGSESSION:HANDOFF -->")
-                if end > start:
-                    existing = existing[:start] + existing[end + 27:]
+        target       = _project_root / HANDOFF_TARGET_NAME
 
-            new_content = (
-                f"<!-- COGSESSION:HANDOFF -->\n"
+        if not feature_enabled(_project_root, "auto_handoff"):
+            # The flag was previously declared in DEFAULT_CONFIG, documented,
+            # and never read here — so turning it off had no effect at all.
+            handoff_injected = ""
+        elif not handoff_path.exists():
+            handoff_injected = ""
+        elif _is_git_tracked(_project_root, target):
+            handoff_injected = (
+                f"⚠ Handoff NOT written: {HANDOFF_TARGET_NAME} is tracked by git. "
+                "Refusing to modify a tracked file — untrack it or add it to .gitignore. "
+                f"The handoff is on disk at {handoff_path}."
+            )
+        else:
+            handoff_content = handoff_path.read_text()
+            existing = target.read_text() if target.exists() else ""
+            # Replace any previous block rather than stacking them up.
+            start_marker, end_marker = "<!-- COGSESSION:HANDOFF -->", "<!-- /COGSESSION:HANDOFF -->"
+            if start_marker in existing:
+                start = existing.find(start_marker)
+                end   = existing.find(end_marker)
+                if end > start:
+                    existing = existing[:start] + existing[end + len(end_marker):]
+
+            target.write_text(
+                f"{start_marker}\n"
                 f"{handoff_content}\n"
-                f"<!-- /COGSESSION:HANDOFF -->\n\n"
+                f"{end_marker}\n\n"
                 f"{existing.strip()}\n"
             )
-            claude_md.write_text(new_content)
-            handoff_injected = "✓ Handoff written to CLAUDE.md (loads automatically next session)"
-        else:
-            handoff_injected = ""
+            handoff_injected = (
+                f"✓ Handoff written to {HANDOFF_TARGET_NAME} "
+                "(auto-loaded next session, untracked by git)"
+            )
 
     # Quality warning for high-context decisions
     flagged = [d for d in _active_session.decisions if d.context_pct >= 75]

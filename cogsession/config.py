@@ -16,6 +16,11 @@ from pathlib import Path
 SESSIONS_DIR_NAME = ".cogsessions"
 CONFIG_FILE_NAME  = ".cogsession.json"
 
+# Where the handoff is delivered so the next session auto-loads it. Deliberately
+# the .local variant: it is auto-loaded like CLAUDE.md but is not committed, so
+# session state never enters a shared source file or dirties the working tree.
+HANDOFF_TARGET_NAME = "CLAUDE.local.md"
+
 
 DEFAULT_CONFIG = {
     # Master switch — set false to completely disable
@@ -31,7 +36,7 @@ DEFAULT_CONFIG = {
         "file_cache":       True,   # Cache file reads to avoid duplicates
         "danger_zones":     True,   # Flag files/areas that need care
         "auto_diagram":     True,   # Generate Mermaid architecture diagram
-        "auto_handoff":     True,   # Auto-write handoff to CLAUDE.md
+        "auto_handoff":     True,   # Auto-write handoff to CLAUDE.local.md (never a tracked file)
         "session_search":   True,   # SQLite FTS across all sessions
     },
 

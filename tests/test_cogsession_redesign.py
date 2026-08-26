@@ -44,11 +44,38 @@ def test_context_window_resolution(tmp_path: Path):
     assert resolve_context_window(tmp_path, "sess_1", 50000) == 1000000
 
 
+def _seed_active_session(root: Path, sid: str = "sess_active") -> None:
+    """A minimal index with one active session, so a checkpoint has a target."""
+    sessions = root / ".cogsessions"
+    (sessions / sid).mkdir(parents=True, exist_ok=True)
+    (sessions / "index.json").write_text(
+        json.dumps({"sessions": {sid: {"id": sid, "created_at": "2026-01-01", "status": "active"}}})
+    )
+
+
 def test_injector_pressure_messages(tmp_path: Path):
+    # The escalation ladder needs an open session: a checkpoint has to have
+    # somewhere to go. This test used to run with no session at all, which is
+    # why it passed while the escalation was firing into nothing.
+    _seed_active_session(tmp_path)
     injector = MemoryInjector(tmp_path)
     assert "MANDATE" in injector.on_user_prompt_submit("test", 82.5)
     assert "WARNING" in injector.on_user_prompt_submit("test", 76.0)
     assert "NOTE" in injector.on_user_prompt_submit("test", 67.0)
+
+
+def test_no_pressure_messages_without_an_open_session(tmp_path: Path):
+    """Never demand a call that cannot succeed.
+
+    With no active session `session_checkpoint` has no target, so telling the
+    model it MUST call it is confident, unactionable, and repeats every turn.
+    """
+    injector = MemoryInjector(tmp_path)
+    for pct in (67.0, 76.0, 82.5, 99.9):
+        out = injector.on_user_prompt_submit("test", pct)
+        assert "MANDATE" not in out
+        assert "WARNING" not in out
+        assert "NOTE" not in out
 
 
 def test_settings_merger(tmp_path: Path):
