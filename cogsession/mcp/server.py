@@ -39,6 +39,7 @@ from cogsession.session.models import (
 )
 from cogsession.session.writer import SessionWriter
 from cogsession.claims import Claim, ClaimStore, format_report, run_check
+from cogsession.journal import JOURNAL_FILE, Journal, log_view
 from cogsession.session.loader import SessionLoader
 from cogsession.config import HANDOFF_TARGET_NAME, feature_enabled, is_enabled, load_project_config
 
@@ -294,6 +295,35 @@ async def list_tools() -> list[types.Tool]:
         ),
 
         types.Tool(
+            name="session_log",
+            description=(
+                "A `git log` for this project's sessions: one line per recorded "
+                "event, newest first, with local timestamp, event type and the "
+                "repo state (branch@commit+dirty) it happened at. Use it to scan "
+                "history fast, then grep the session's own `session.md` for the "
+                "entry that matters. Filter by type to answer 'what has already "
+                "failed here' in one call."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "limit": {
+                        "type": "number",
+                        "description": "Max lines (default 40)"
+                    },
+                    "type_filter": {
+                        "type": "string",
+                        "description": "Only this event type, e.g. decision, dead_end, error"
+                    },
+                    "session_id": {
+                        "type": "string",
+                        "description": "One session only. Omit to walk newest-first across all"
+                    }
+                }
+            }
+        ),
+
+        types.Tool(
             name="claim_record",
             description=(
                 "Record a claim together with the command that PROVES it, so a "
@@ -393,6 +423,7 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
         elif name == "session_search":   return await _search(arguments)
         elif name == "session_status":   return await _status(arguments)
         elif name == "session_diagram":  return await _diagram(arguments)
+        elif name == "session_log":      return await _session_log(arguments)
         elif name == "claim_record":     return await _claim_record(arguments)
         elif name == "claim_check":      return await _claim_check(arguments)
         else:
@@ -909,6 +940,30 @@ async def _claim_check(args: dict) -> list[types.TextContent]:
         return _txt(report)
     return _txt(f"[CogSession] All {len(results)} claim(s) still hold.")
 
+
+async def _session_log(args: dict) -> list[types.TextContent]:
+    """Chronological view across sessions — the scan step before a grep."""
+    if not _project_root:
+        return _txt("[CogSession] No project root. Call session_init() first.")
+
+    loader = SessionLoader(_project_root)
+    if args.get("session_id"):
+        ids = [args["session_id"]]
+    else:
+        ids = [sess["id"] for sess in loader.list_sessions()]
+    if not ids:
+        return _txt("[CogSession] No sessions yet.")
+
+    view = log_view(
+        _project_root, ids,
+        limit=int(args.get("limit") or 40),
+        type_filter=(args.get("type_filter") or "").strip(),
+    )
+    hint = (
+        "\n\nTo read one entry in full, grep the session's journal:\n"
+        f"  grep -n -A6 '<timestamp>' .cogsessions/<session>/{JOURNAL_FILE}"
+    )
+    return _txt(view + hint)
 
 def _head_commit(project_root: Optional[Path]) -> str:
     if not project_root:
