@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 
 from cogsession.claims import ClaimStore, format_report
 from cogsession.config import feature_enabled, is_enabled
+from cogsession.journal import Journal
 from cogsession.sensor import calculate_context_pct
 from cogsession.injector import MemoryInjector
 from cogsession.session.loader import SessionLoader
@@ -113,17 +114,39 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
-def _append_log(project_root: Path, session_id: str, entry: dict) -> bool:
-    """Append one entry to a session's append-only log. True if written."""
+def _append_log(project_root: Path, session_id: str, entry: dict, journal: bool = True) -> bool:
+    """Append one entry to the machine log and the human journal.
+
+    Both, for the same reason `Session.append_log` does: a journal with holes
+    is worse than none, because a grep that finds nothing reads as proof that
+    nothing happened.
+    """
     session_dir = project_root / ".cogsessions" / session_id
     if not session_dir.is_dir():
         return False
     try:
         with open(session_dir / "session_log.jsonl", "a", encoding="utf-8") as f:
             f.write(json.dumps({"ts": _now(), **entry}) + "\n")
-        return True
     except OSError:
         return False
+
+    if not journal:
+        return True
+
+    try:
+        j = Journal(project_root, session_id)
+        j.ensure_header()                # a session predating the journal still gets one
+        detail = {k: v for k, v in entry.items()
+                  if k not in ("type", "content", "context_pct")}
+        j.append(
+            entry.get("type", "event"),
+            entry.get("content", "") or entry.get("tool", ""),
+            context_pct=float(entry.get("context_pct") or 0),
+            detail=detail or None,
+        )
+    except Exception:
+        pass
+    return True
 
 
 def _ensure_active_session(project_root: Path, harness_session_id: str) -> str:
@@ -160,10 +183,13 @@ def _ensure_active_session(project_root: Path, harness_session_id: str) -> str:
         writer = SessionWriter(session)
         writer.write_manifest()
         writer.update_index()
+        Journal(project_root, session.id).ensure_header(
+            harness_session_id=harness_session_id
+        )
     except OSError:
         return ""
 
-    return f"[CogSession] Tracking this session as {session.id}"
+    return f"[CogSession] Tracking this session as {session.id} (session.md started)"
 
 
 
@@ -234,17 +260,20 @@ def _handle_post_tool_use(payload: dict, project_root: Path, session_id: str, co
     if not active_dir.exists():
         return
 
-    log_file = active_dir / "session_log.jsonl"
-    ts = _now()
-    tool_name = payload.get("tool_name", "")
-    entry = {
-        "ts": ts,
-        "type": "tool_use",
-        "tool": tool_name,
-        "context_pct": context_pct if context_pct is not None else 0,
-    }
-    with open(log_file, "a", encoding="utf-8") as f:
-        f.write(json.dumps(entry) + "\n")
+    # Machine log only, deliberately. Tool calls run to hundreds per session,
+    # and `session.md` earns its keep by being greppable — flooding it with
+    # "Edit" five hundred times would bury the decisions and dead ends that
+    # someone is actually searching for. The count is available from the
+    # JSONL whenever it is wanted.
+    _append_log(
+        project_root, active_id,
+        {
+            "type": "tool_use",
+            "tool": payload.get("tool_name", ""),
+            "context_pct": context_pct if context_pct is not None else 0,
+        },
+        journal=False,
+    )
 
 
 def _handle_pre_compact(payload: dict, project_root: Path, session_id: str, context_pct: float):
