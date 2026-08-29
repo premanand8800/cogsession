@@ -1,3 +1,5 @@
+<!-- mcp-name: io.github.premanand8800/cogsession -->
+
 # 🌳 CogSession
 
 **Session memory for AI coding agents.** Your agent forgets everything when the context
@@ -102,10 +104,32 @@ is a `git log --oneline` across all of them.
 ## Install
 
 ```bash
+pip install cogsession        # or: uv tool install cogsession
+cogsession-admin install
+```
+
+Two commands on purpose. The first installs the MCP server; the second wires the
+**hooks**, which is what makes CogSession record without being asked. A package
+cannot write to `~/.claude/settings.json` on its own, so without the second command
+you get eleven tools you must call by hand and none of the recording.
+
+`cogsession-admin install` backs up your settings first, adds the six hooks
+alongside anything already there, and **will not overwrite a status line you
+already set**.
+
+<details>
+<summary>Installing from a clone instead (for working on CogSession itself)</summary>
+
+```bash
 git clone https://github.com/premanand8800/cogsession.git
 cd cogsession
-bash scripts/install.sh
+uv sync
+uv run cogsession-admin install --repo .
 ```
+
+`--repo` points the hooks at your checkout through `uv`, so edits take effect
+without reinstalling.
+</details>
 
 The installer syncs dependencies with `uv`, registers the MCP server with Claude Code, and
 writes the hooks that let it observe a session without being asked. It touches
