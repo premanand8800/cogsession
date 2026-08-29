@@ -1,42 +1,144 @@
 # 🌳 CogSession
 
-**Session memory for AI coding agents — tree-structured, handoff-driven, context-aware.**
+**Session memory for AI coding agents.** Your agent forgets everything when the context
+window fills. CogSession remembers the parts worth keeping, and tells you when they stop
+being true.
 
-When Claude Code hits its context limit, you lose everything. CogSession fixes that with a developer-first session handoff system — organized like git branches, designed for real handoffs between sessions.
+[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-green.svg)](LICENSE)
+[![MCP](https://img.shields.io/badge/MCP-server-orange.svg)](https://modelcontextprotocol.io/)
+[![Tests](https://img.shields.io/badge/tests-83%20passing-brightgreen.svg)](tests/)
 
 ---
 
-## The Problem
+## The problem
 
 ```
-Session 1 (hits 80% context) → Session 2 starts fresh → Session 3 starts fresh
-    Everything lost.              Repeat the mistakes.    Start blind again.
+Session 1 (context fills) → Session 2 starts fresh → Session 3 starts fresh
+    Everything lost.          Repeats the mistakes.   Starts blind again.
 ```
 
-## The Solution
+You explain the codebase again. The agent tries the approach that already failed. The
+constraint you agreed on in session 1 is gone by session 3.
+
+The usual answer is "write better notes", which fails for the same reason all documentation
+fails: **it is true when written and nobody notices when it stops being true.**
+
+## What CogSession does
+
+Three things, and the third is the one that does not exist elsewhere.
+
+**1. It records without being asked.** A session opens on its own. Decisions, dead ends,
+assumptions and errors are written as they happen, each stamped with the local time and the
+repo state it happened at (`main@a1b2c3d+2`, where `+2` is dirty files).
+
+**2. It makes that searchable without loading it.** Every session keeps a `session.md`:
+append-only, one block per event, every entry line self-describing. So one `grep` answers a
+question without pulling a file into context.
+
+```bash
+grep -A4 "dead_end"      .cogsessions/*/session.md   # what already failed
+grep "2026-08-27 01:"    .cogsessions/*/session.md   # what happened that hour
+grep "main@a1b2c3d"      .cogsessions/*/session.md   # what happened at that commit
+```
+
+**3. It tells you when what you wrote stops being true.** Record a claim with the command
+that *proves* it. When the files it watches change, the proof is re-run:
+
+```
+[CogSession] 1 claim(s) no longer hold:
+  ✗ the composite key includes the tenant column
+    expected '1', got '0'
+    asserted in: PR description, line 26
+    proof: grep -c 'UNIQUE (a, b, c)' migrations/007_schema.sql
+```
+
+No model judgement involved. It stores the command that proved something and re-runs it.
+Silence means everything still holds.
+
+## Why the third one matters
+
+Every expensive failure in three weeks of daily use reduced to one sentence: *something was
+true when it was written and stopped being true.* A pull request description explaining a
+schema the code no longer had. A comment naming a constraint that moved. A test asserting a
+shape the implementation had dropped. A docstring contradicting its own function.
+
+An agent cannot notice that from a transcript. A human notices it in review, which is the
+expensive place. A stored proof notices it for free.
+
+---
+
+## What a session looks like on disk
 
 ```
 .cogsessions/
 ├── sess_001_discover/
-│   ├── handoff.md          ← New session reads THIS first
-│   ├── dead_ends.md        ← What failed and why (don't repeat it)
-│   ├── assumptions.md      ← What was assumed but not verified
-│   ├── tasks.json          ← Done / remaining / blocked
-│   ├── decisions.json      ← Decisions flagged by context quality
-│   ├── environment.json    ← Exact commands to restore working state
-│   ├── architecture.mermaid← Auto-generated codebase diagram
-│   └── session_log.jsonl   ← Timestamped append-only event stream
+│   ├── session.md          ← greppable timeline, every entry timestamped + git-stamped
+│   ├── handoff.md          ← the brief the next session reads first
+│   ├── claims.json         ← assertions with the commands that prove them
+│   ├── dead_ends.md        ← what failed and why, so it is not retried
+│   ├── assumptions.md      ← what was assumed but never verified
+│   ├── tasks.json          ← done / remaining / blocked
+│   ├── decisions.json      ← flagged when made under high context pressure
+│   ├── environment.json    ← the commands that restore a working state
+│   ├── architecture.mermaid← auto-generated dependency diagram
+│   └── session_log.jsonl   ← append-only machine log
 ├── sess_002_auth/          (parent: sess_001)
 └── sess_003_payments/      (parent: sess_001, sibling of sess_002)
 ```
 
+Sessions form a tree, like branches, because work does. `session_tree` shows it; `session_log`
+is a `git log --oneline` across all of them.
+
 ---
+
+## Requirements
+
+- Python 3.11+
+- [`uv`](https://docs.astral.sh/uv/) for the install script
+- An MCP-capable agent. Built against Claude Code; also usable from Codex (see below)
+- `git` is optional. Without it the journal records `no-git` and stays useful
 
 ## Install
 
 ```bash
+git clone https://github.com/premanand8800/cogsession.git
+cd cogsession
 bash scripts/install.sh
 ```
+
+The installer syncs dependencies with `uv`, registers the MCP server with Claude Code, and
+writes the hooks that let it observe a session without being asked. It touches
+`~/.claude/settings.json` and nothing inside your projects.
+
+**It will not write to a file git tracks.** The handoff goes to `CLAUDE.local.md`, which is
+auto-loaded the same way `CLAUDE.md` is but never committed. If that filename happens to be
+tracked in your repo, CogSession refuses to write rather than dirtying your tree, and tells
+you where the handoff is on disk instead. Add `.cogsessions/` to your `.gitignore`.
+
+### The tools
+
+Eleven MCP tools, in four groups:
+
+| Group | Tools |
+|---|---|
+| Lifecycle | `session_init` · `session_checkpoint` · `session_load` · `session_status` |
+| Recording | `session_update` |
+| Searching | `session_search` · `session_log` · `session_tree` · `session_diagram` |
+| Claims | `claim_record` · `claim_check` |
+
+Plus six hooks (`SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`,
+`PreCompact`, `SessionEnd`) that do the recording you never have to ask for.
+
+### What it does *not* do
+
+Worth saying plainly, because it is the first thing people assume:
+
+**CogSession does not store your conversations.** It reads the transcript only to measure how
+full the context window is. What it keeps is conclusions — decisions, dead ends, assumptions,
+claims — plus the mechanical events from the hooks. That is deliberate: a memory made of every
+word said is a memory nobody re-reads. But it does mean the quality of a session's memory
+depends on things being recorded as they are decided.
 
 ---
 
