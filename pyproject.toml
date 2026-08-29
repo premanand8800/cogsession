@@ -1,20 +1,56 @@
 [project]
 name = "cogsession"
 version = "0.1.0"
-description = "Session memory system for AI coding agents — tree-structured, handoff-driven, context-aware"
+description = "Session memory for AI coding agents — records decisions and dead ends as they happen, and tells you when what you wrote stops being true"
+# Required, and not only for looks: the MCP Registry verifies ownership of a
+# PyPI package by finding an `mcp-name:` marker in the package description,
+# which is this file. Without it the package publishes with a blank PyPI page
+# and registry verification fails.
+readme = "README.md"
 requires-python = ">=3.11"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+authors = [{ name = "premanand8800" }]
+keywords = [
+    "mcp", "model-context-protocol", "claude-code", "ai-agents",
+    "agent-memory", "llm", "developer-tools",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Software Development :: Version Control",
+]
 
 dependencies = [
     "mcp>=1.0.0",
     "python-dotenv>=1.0.0",
     "pydantic>=2.0.0",
-    "pytest>=7.0.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/premanand8800/cogsession"
+Repository = "https://github.com/premanand8800/cogsession"
+Issues = "https://github.com/premanand8800/cogsession/issues"
+
+[dependency-groups]
+# pytest was a runtime dependency, so `pip install cogsession` dragged a test
+# framework into the user's environment. It is not needed to run the server.
+dev = ["pytest>=7.0.0", "pytest-asyncio>=0.23"]
 
 
 [project.scripts]
+# The MCP server. An MCP client launches this; it is not run by hand.
 cogsession = "cogsession.mcp.server:run"
+# The hook entry point. Registered into ~/.claude/settings.json, not called directly.
 cogsession-hook = "cogsession.hook_entry:main"
+# Setup. `cogsession-admin install` wires the hooks after a package install —
+# separate from the server so the server's stdio stays clean.
+cogsession-admin = "cogsession.cli:main"
 
 
 [build-system]

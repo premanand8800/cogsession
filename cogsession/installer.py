@@ -1,18 +1,69 @@
 """
 cogsession/installer.py
 
-Merges CogSession hooks into ~/.claude/settings.json using Python.
-Idempotent, preserves existing keys and unrelated hooks, creates a backup first.
+Merges CogSession hooks into ~/.claude/settings.json.
+
+Idempotent, preserves existing keys and unrelated hooks, backs up first.
+
+Two install shapes, and the difference is the command the hooks run:
+
+  from a clone      uv --directory <repo> run cogsession-hook <event>
+  pip installed     cogsession-hook <event>          (console script on PATH)
+
+The second exists because the hooks are most of what makes this work — a
+session opening itself, the journal recording as work happens, claims
+re-checked on start. A package install cannot write to `~/.claude/settings.json`
+on its own, so without `cogsession install` a pip user gets eleven tools they
+must call by hand and none of the recording. That is a different, worse product.
 """
 
+from __future__ import annotations
+
 import json
-from pathlib import Path
 import shutil
 from datetime import datetime
+from pathlib import Path
+from shutil import which
+from typing import Optional
+
+#: Every hook, and the tool pattern it fires on. One list so the six are
+#: registered the same way and a new event cannot be added to only half.
+HOOKS: tuple[tuple[str, str], ...] = (
+    ("PreToolUse", "Read|Write|Edit|MultiEdit|Bash"),
+    ("PostToolUse", "Bash|Write|Edit"),
+    ("SessionStart", "*"),
+    ("UserPromptSubmit", "*"),
+    ("PreCompact", "*"),
+    ("SessionEnd", "*"),
+)
 
 
-def merge_settings(claude_dir: Path, repo_dir: Path) -> Path:
-    """Merges cogsession-hook settings into ~/.claude/settings.json."""
+def hook_command(event: str, repo_dir: Optional[Path] = None) -> str:
+    """The shell command a hook runs, for whichever way this was installed.
+
+    `repo_dir` means "run from that checkout via uv". Omitting it means the
+    console script is on PATH, which is the pip case.
+    """
+    if repo_dir is not None:
+        return f"uv --directory {repo_dir} run cogsession-hook {event}"
+    return f"cogsession-hook {event}"
+
+
+def is_installed_on_path() -> bool:
+    """Is `cogsession-hook` runnable as a bare command?"""
+    return which("cogsession-hook") is not None
+
+
+def merge_settings(
+    claude_dir: Path,
+    repo_dir: Optional[Path] = None,
+    *,
+    set_statusline: bool = True,
+) -> Path:
+    """Merge the hooks into `~/.claude/settings.json` and return its path.
+
+    `repo_dir=None` registers the console-script form, for a pip install.
+    """
     settings_file = claude_dir / "settings.json"
 
     # Backup if settings file exists
@@ -29,14 +80,18 @@ def merge_settings(claude_dir: Path, repo_dir: Path) -> Path:
 
     # Define cogsession hook commands using uv --directory <repo> run cogsession-hook <event>
     def make_cmd(event: str) -> str:
-        return f"uv --directory {repo_dir} run cogsession-hook {event}"
+        return hook_command(event, repo_dir)
 
-    # Statusline
-    existing_config["statusLine"] = {
-        "type": "command",
-        "command": make_cmd("statusline"),
-        "padding": 0,
-    }
+    # Only claim the status line if nothing else has it. Overwriting silently
+    # destroys whatever the user built, and a memory tool taking the status bar
+    # hostage on install is not a trade anyone agreed to.
+    existing_statusline = existing_config.get("statusLine")
+    if set_statusline and not existing_statusline:
+        existing_config["statusLine"] = {
+            "type": "command",
+            "command": make_cmd("statusline"),
+            "padding": 0,
+        }
 
     # Hooks configuration
     hooks = existing_config.get("hooks", {})
@@ -58,47 +113,11 @@ def merge_settings(claude_dir: Path, repo_dir: Path) -> Path:
         )
         return hook_list
 
-    # PreToolUse
-    pre_tool = hooks.get("PreToolUse", [])
-    if not isinstance(pre_tool, list):
-        pre_tool = []
-    pre_tool = ensure_hook_entry(pre_tool, "Read|Write|Edit|MultiEdit|Bash", make_cmd("PreToolUse"))
-    hooks["PreToolUse"] = pre_tool
-
-    # PostToolUse
-    post_tool = hooks.get("PostToolUse", [])
-    if not isinstance(post_tool, list):
-        post_tool = []
-    post_tool = ensure_hook_entry(post_tool, "Bash|Write|Edit", make_cmd("PostToolUse"))
-    hooks["PostToolUse"] = post_tool
-
-    # SessionStart
-    session_start = hooks.get("SessionStart", [])
-    if not isinstance(session_start, list):
-        session_start = []
-    session_start = ensure_hook_entry(session_start, "*", make_cmd("SessionStart"))
-    hooks["SessionStart"] = session_start
-
-    # UserPromptSubmit
-    user_prompt = hooks.get("UserPromptSubmit", [])
-    if not isinstance(user_prompt, list):
-        user_prompt = []
-    user_prompt = ensure_hook_entry(user_prompt, "*", make_cmd("UserPromptSubmit"))
-    hooks["UserPromptSubmit"] = user_prompt
-
-    # PreCompact
-    pre_compact = hooks.get("PreCompact", [])
-    if not isinstance(pre_compact, list):
-        pre_compact = []
-    pre_compact = ensure_hook_entry(pre_compact, "*", make_cmd("PreCompact"))
-    hooks["PreCompact"] = pre_compact
-
-    # SessionEnd
-    session_end = hooks.get("SessionEnd", [])
-    if not isinstance(session_end, list):
-        session_end = []
-    session_end = ensure_hook_entry(session_end, "*", make_cmd("SessionEnd"))
-    hooks["SessionEnd"] = session_end
+    for event, matcher in HOOKS:
+        current = hooks.get(event, [])
+        if not isinstance(current, list):
+            current = []
+        hooks[event] = ensure_hook_entry(current, matcher, make_cmd(event))
 
     existing_config["hooks"] = hooks
 
