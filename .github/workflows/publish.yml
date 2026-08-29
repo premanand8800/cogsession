@@ -1,0 +1,114 @@
+name: Publish
+
+# Publishing is triggered by a version tag and nothing else. Not by a push to
+# main, because a PyPI version can never be re-uploaded once taken, and an
+# accidental release is not something you can undo.
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  # Never publish something that has not passed. A tag is not a promise that
+  # the code works; the tests are.
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          python-version: "3.11"
+      - run: uv sync --group dev
+      - run: uv run pytest -q
+
+  pypi:
+    needs: test
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/cogsession
+    permissions:
+      # The whole point: PyPI Trusted Publishing exchanges this short-lived
+      # OIDC token for upload rights. There is no API token to create, store,
+      # leak or rotate — the repository itself is the credential.
+      id-token: write
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          python-version: "3.11"
+
+      - name: Refuse to publish if the tag disagrees with the package
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF#refs/tags/v}"
+          PKG=$(grep -m1 '^version' pyproject.toml | cut -d'"' -f2)
+          SRV=$(python3 -c "import json;print(json.load(open('server.json'))['version'])")
+          echo "tag=$TAG  pyproject=$PKG  server.json=$SRV"
+          if [ "$TAG" != "$PKG" ] || [ "$TAG" != "$SRV" ]; then
+            echo "::error::Version mismatch. Tag, pyproject.toml and server.json must agree."
+            echo "Publishing a mismatched version is unrecoverable: PyPI never lets that"
+            echo "version be re-uploaded, and the registry would point at a package that"
+            echo "does not exist."
+            exit 1
+          fi
+
+      - name: Build
+        run: uv build
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+
+  registry:
+    # Strictly after PyPI. The registry validates that the package it is being
+    # told about actually exists and carries the ownership marker, so the
+    # order is a requirement rather than a preference.
+    needs: pypi
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write # OIDC again — no PAT, no stored secret
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install mcp-publisher
+        run: |
+          set -euo pipefail
+          curl -fsSL "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" \
+            | tar xz mcp-publisher
+
+      - name: Wait for PyPI to serve the new version
+        # PyPI's index is not instantaneous, and the registry's validation
+        # fetches the package. Publishing straight after upload can fail on a
+        # version that is genuinely there, which reads as a real error and is not.
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF#refs/tags/v}"
+          for attempt in $(seq 1 10); do
+            if curl -fsS "https://pypi.org/pypi/cogsession/$VERSION/json" > /dev/null; then
+              echo "cogsession $VERSION is live on PyPI"
+              exit 0
+            fi
+            echo "attempt $attempt: not visible yet, waiting"
+            sleep 15
+          done
+          echo "::error::cogsession $VERSION never appeared on PyPI"
+          exit 1
+
+      - name: Authenticate to the MCP Registry
+        run: ./mcp-publisher login github-oidc
+
+      - name: Publish to the MCP Registry
+        run: ./mcp-publisher publish
+
+      - name: Confirm it is listed
+        run: |
+          set -euo pipefail
+          sleep 5
+          curl -fsS "https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.premanand8800/cogsession" \
+            | tee /dev/stderr | grep -q "cogsession"

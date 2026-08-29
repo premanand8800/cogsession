@@ -1,0 +1,98 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# A second push to the same branch cancels the first. Nobody needs the result
+# of a run for code that has already been replaced.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # The floor and the ceiling. The floor is what pyproject promises to
+        # support, so it is the one that actually catches a regression; the
+        # ceiling catches deprecations before they become breakage.
+        python-version: ["3.11", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: uv sync --group dev
+
+      - name: Run tests
+        run: uv run pytest -q
+
+  package:
+    # Building here rather than only at release time. A packaging mistake that
+    # surfaces during a tagged release is the worst moment to find it, because
+    # a PyPI version can never be re-uploaded once taken.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Build the distributions
+        run: uv build
+
+      - name: Check the package metadata
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import glob, re, zipfile, sys
+
+          wheel = sorted(glob.glob("dist/*.whl"))[-1]
+          with zipfile.ZipFile(wheel) as z:
+              name = next(n for n in z.namelist() if n.endswith("METADATA"))
+              meta = z.read(name).decode()
+
+          problems = []
+
+          # The MCP Registry verifies ownership of a PyPI package by finding
+          # this marker in the package description. No marker, no listing —
+          # and the failure only shows up at publish time, which is far too
+          # late to be discovering it.
+          if "mcp-name: io.github.premanand8800/cogsession" not in meta:
+              problems.append("the mcp-name marker is missing from the package description")
+
+          if "Description-Content-Type" not in meta:
+              problems.append("the README is not in the package metadata")
+
+          # pytest was once a runtime dependency, so installing this dragged a
+          # test framework into the user's environment.
+          for banned in ("pytest", "pytest-asyncio"):
+              if re.search(rf"^Requires-Dist: {banned}\b", meta, re.M):
+                  problems.append(f"{banned} is a runtime dependency and should not be")
+
+          if problems:
+              print("Package metadata is not publishable:")
+              for p in problems:
+                  print(f"  - {p}")
+              sys.exit(1)
+
+          print("Package metadata looks publishable.")
+          PY
+
+      - name: Keep the built distributions
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
