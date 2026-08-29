@@ -2,7 +2,7 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.premanand8800/cogsession",
   "title": "CogSession",
-  "description": "Session memory for AI coding agents. Records decisions, dead ends and assumptions as they happen, makes them greppable, and tells you when what you wrote stops being true.",
+  "description": "Session memory for AI coding agents: records decisions and dead ends, flags what went stale.",
   "version": "0.1.0",
   "repository": {
     "url": "https://github.com/premanand8800/cogsession",
