@@ -27,6 +27,12 @@ jobs:
     environment:
       name: pypi
       url: https://pypi.org/p/cogsession
+    # PREREQUISITE, and the first release failed on exactly this: a trusted
+    # publisher must exist on PyPI or the OIDC exchange has nothing to match
+    # and the job fails with "Trusted publishing exchange failure".
+    #   https://pypi.org/manage/project/cogsession/settings/publishing/
+    #   Owner: premanand8800 · Repo: cogsession · Workflow: publish.yml
+    #   Environment: pypi
     permissions:
       # The whole point: PyPI Trusted Publishing exchanges this short-lived
       # OIDC token for upload rights. There is no API token to create, store,
@@ -62,6 +68,14 @@ jobs:
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          # A tag can be re-cut, and a GitHub Release created from the UI
+          # creates a tag too — which fires this workflow for a version that
+          # is already on PyPI. Without this, that is a hard failure on a
+          # release that actually succeeded, which trains people to ignore a
+          # red run. PyPI still refuses to overwrite; this only stops us
+          # treating its refusal as our error.
+          skip-existing: true
 
   registry:
     # Strictly after PyPI. The registry validates that the package it is being
