@@ -70,6 +70,36 @@ expensive place. A stored proof notices it for free.
 
 ---
 
+## Is this the thing you are looking for?
+
+You are probably here because of one of these:
+
+- **Claude Code hit its context limit** and the next session knows nothing about the last one
+- Your agent **retried an approach that already failed**, because nothing recorded that it failed
+- A constraint you agreed on in one session was **gone three sessions later**
+- You keep **re-explaining the same codebase** at the start of every session
+- A comment, a doc or a PR description **described the code as it used to be**, and review caught it rather than you
+
+The first four are what any agent-memory tool is for. The fifth is the one CogSession
+was actually built to solve, and it is the reason for the claims feature above.
+
+### How this differs from just writing notes
+
+Notes go stale silently. That is the entire problem, and no amount of discipline fixes it,
+because the failure is not that you forgot to write something down — it is that what you
+wrote stopped being true and nothing told you.
+
+A claim is a note with a **proof attached**. When the proof stops passing, you hear about it.
+
+### How this differs from your agent's built-in memory
+
+Built-in memory decides what to keep. This records what happened, in a plain file you own,
+in your repo's directory, greppable with tools you already have. It works the same whether
+the agent is Claude Code today or something else next year, because the output is markdown
+and JSONL rather than a vendor's store.
+
+---
+
 ## What a session looks like on disk
 
 ```
