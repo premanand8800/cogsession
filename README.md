@@ -10,6 +10,7 @@ being true.
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-green.svg)](LICENSE)
 [![MCP](https://img.shields.io/badge/MCP-server-orange.svg)](https://modelcontextprotocol.io/)
 [![Tests](https://img.shields.io/badge/tests-83%20passing-brightgreen.svg)](tests/)
+[![CogSession MCP server](https://mcprush.com/badge/cogsession-mcp/card.svg)](https://mcprush.com/to/cogsession-mcp?ref=badge)
 
 ---
 
